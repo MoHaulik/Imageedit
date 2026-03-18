@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ultimate Image Studio</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
+    <style>
+        /* Modern Font and AAA Styling */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+        
+        :root {
+            --bg: #0f172a;
+            --surface: #1e293b;
+            --primary: #3b82f6;
+            --primary-hover: #2563eb;
+            --text: #f8fafc;
+            --text-muted: #94a3b8;
+            --radius: 12px;
+        }
+        
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            padding: 2rem;
+        }
+        
+        .header { margin-bottom: 2rem; text-align: center; }
+        .header h1 { 
+            font-size: 2.5rem; 
+            font-weight: 600; 
+            /* Cool gradient text effect */
+            background: linear-gradient(to right, #60a5fa, #a78bfa); 
+            -webkit-background-clip: text; 
+            color: transparent; 
+        }
+        
+        .app-container {
+            background: var(--surface);
+            padding: 2rem;
+            border-radius: var(--radius);
+            box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.3), 0 8px 10px -6px rgb(0 0 0 / 0.3);
+            width: 100%;
+            max-width: 850px;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+        
+        .workspace {
+            width: 100%;
+            height: 450px;
+            background: #000;
+            border-radius: var(--radius);
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 2px dashed var(--text-muted);
+            position: relative;
+        }
+        
+        .workspace img { max-width: 100%; max-height: 100%; display: none; }
+        
+        .toolbar {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.4s ease, transform 0.4s ease;
+            transform: translateY(10px);
+        }
+        
+        .toolbar.active { 
+            opacity: 1; 
+            pointer-events: auto; 
+            transform: translateY(0);
+        }
+        
+        .btn-group { display: flex; gap: 0.5rem; flex-wrap: wrap;}
+        
+        button, label.upload-btn {
+            background: var(--surface);
+            color: var(--text);
+            border: 1px solid #334155;
+            padding: 0.75rem 1.25rem;
+            border-radius: 8px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        button:hover, label.upload-btn:hover { background: #334155; transform: scale(1.02); }
+        button:active, label.upload-btn:active { transform: scale(0.98); }
+        
+        button.primary { background: var(--primary); border-color: var(--primary); color: white; }
+        button.primary:hover { background: var(--primary-hover); }
+        
+        input[type="file"] { display: none; }
+        
+        select {
+            background: var(--surface);
+            color: var(--text);
+            border: 1px solid #334155;
+            padding: 0.75rem;
+            border-radius: 8px;
+            font-family: inherit;
+            outline: none;
+            cursor: pointer;
+        }
+        
+        .placeholder-text { color: var(--text-muted); position: absolute; pointer-events: none; font-weight: 500;}
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>Ultimate Image Studio</h1>
+        <p style="color: var(--text-muted); margin-top: 0.5rem;">Crop, Flip, and Convert directly in Safari.</p>
+    </div>
+
+    <div class="app-container">
+        <div style="display: flex; justify-content: center;">
+            <label class="upload-btn">
+                <input type="file" id="fileInput" accept="image/png, image/jpeg, image/webp, image/heic">
+                🚀 Upload Image
+            </label>
+        </div>
+
+        <div class="workspace" id="workspace">
+            <span class="placeholder-text" id="placeholderText">No image selected yet</span>
+            <img id="image" src="" alt="Picture">
+        </div>
+
+        <div class="toolbar" id="toolbar">
+            <div class="btn-group">
+                <button id="btnFlipH">Flip Horizontal</button>
+                <button id="btnFlipV">Flip Vertical</button>
+                <button id="btnReset">Reset Crop</button>
+            </div>
+            
+            <div class="btn-group">
+                <select id="formatSelect">
+                    <option value="image/jpeg">Export as JPG</option>
+                    <option value="image/png">Export as PNG</option>
+                    <option value="image/webp">Export as WebP</option>
+                </select>
+                <button id="btnDownload" class="primary">Download Result</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const image = document.getElementById('image');
+        const workspace = document.getElementById('workspace');
+        const placeholderText = document.getElementById('placeholderText');
+        const toolbar = document.getElementById('toolbar');
+        
+        let cropper;
+        let scaleX = 1;
+        let scaleY = 1;
+
+        // 1. Handle File Upload
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    // Setup Image
+                    image.src = event.target.result;
+                    image.style.display = 'block';
+                    placeholderText.style.display = 'none';
+                    workspace.style.border = 'none';
+                    toolbar.classList.add('active'); // Reveal cool toolbar
+                    
+                    // Destroy old cropper instance if uploading a new image
+                    if (cropper) cropper.destroy();
+                    
+                    // Initialize Cropper.js
+                    cropper = new Cropper(image, {
+                        viewMode: 2,          // Restrict crop box to not exceed canvas
+                        background: false,    // Removes default grid background
+                        autoCropArea: 0.9,
+                        responsive: true,
+                        restore: false,
+                        guides: true,
+                        center: true,
+                        highlight: false,
+                        cropBoxMovable: true,
+                        cropBoxResizable: true,
+                        toggleDragModeOnDblclick: false,
+                    });
+                    
+                    // Reset flips
+                    scaleX = 1;
+                    scaleY = 1;
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // 2. Flipping Logic
+        document.getElementById('btnFlipH').addEventListener('click', () => {
+            if (!cropper) return;
+            scaleX = scaleX === 1 ? -1 : 1;
+            cropper.scaleX(scaleX);
+        });
+
+        document.getElementById('btnFlipV').addEventListener('click', () => {
+            if (!cropper) return;
+            scaleY = scaleY === 1 ? -1 : 1;
+            cropper.scaleY(scaleY);
+        });
+
+        // 3. Reset Button
+        document.getElementById('btnReset').addEventListener('click', () => {
+            if (!cropper) return;
+            cropper.reset();
+            scaleX = 1;
+            scaleY = 1;
+            cropper.scale(1, 1);
+        });
+
+        // 4. Download and Convert Logic
+        document.getElementById('btnDownload').addEventListener('click', () => {
+            if (!cropper) return;
+            
+            const format = document.getElementById('formatSelect').value;
+            const extension = format.split('/')[1]; 
+            
+            // Extract the cropped piece
+            const canvas = cropper.getCroppedCanvas({
+                imageSmoothingEnabled: true,
+                imageSmoothingQuality: 'high',
+            });
+            
+            // Convert to selected format (0.95 quality for JPG/WebP)
+            const dataUrl = canvas.toDataURL(format, 0.95);
+            
+            // Force Download
+            const link = document.createElement('a');
+            link.download = `ultimate-crop.${extension}`;
+            link.href = dataUrl;
+            link.click();
+        });
+    </script>
+</body>
+</html>
