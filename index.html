@@ -11,7 +11,7 @@
     
     <style>
         :root {
-            --bg-color: #f3f3f1; /* Soft warm grey background */
+            --bg-color: #f3f3f1;
             --card-bg: #ffffff;
             --text-main: #111111;
             --text-muted: #888888;
@@ -126,11 +126,10 @@
             display: none; /* Hidden until upload */
             opacity: 0;
             transform: translateY(20px);
-            transition: var(--transition);
+            transition: opacity 0.4s ease, transform 0.4s ease;
         }
 
         .workspace-wrapper.active {
-            display: block;
             opacity: 1;
             transform: translateY(0);
         }
@@ -141,15 +140,13 @@
             min-height: 400px;
             border-radius: 16px;
             overflow: hidden;
-            background-color: #fafafa;
+            background-color: #e5e5e5;
             position: relative;
         }
 
         .workspace img {
             display: block;
             max-width: 100%;
-            opacity: 0; /* Hidden until loaded to prevent flash */
-            transition: opacity 0.3s;
         }
 
         /* Floating Glass Toolbar */
@@ -228,9 +225,11 @@
 
         /* Custom Cropper overrides for a cleaner look */
         .cropper-view-box, .cropper-face { border-radius: 4px; }
-        .cropper-line, .cropper-point { background-color: #fff; }
-        .cropper-point.point-se { width: 10px; height: 10px; }
-        .cropper-modal { background-color: rgba(243, 243, 241, 0.8); } /* Matches page bg */
+        .cropper-line { background-color: #fff; opacity: 0.6; }
+        .cropper-point { background-color: #fff; border-radius: 50%; width: 6px; height: 6px; opacity: 0.8; }
+        .cropper-point.point-se { width: 10px; height: 10px; opacity: 1; }
+        .cropper-modal { background-color: rgba(243, 243, 241, 0.85); } 
+        .cropper-bg { background-image: none; background-color: #e5e5e5; }
         
         /* Close button for workspace */
         .btn-close {
@@ -326,7 +325,7 @@
         const toolbar = document.getElementById('toolbar');
         const btnClose = document.getElementById('btnClose');
         
-        let cropper;
+        let cropper = null;
         let scaleX = 1;
         let scaleY = 1;
         let originalFileName = "image";
@@ -359,7 +358,7 @@
             handleFiles(this.files);
         });
 
-        // --- Core Image Handling & Bug Fix ---
+        // --- Core Image Handling & Bug Fixes ---
         function handleFiles(files) {
             if (files.length === 0) return;
             const file = files[0];
@@ -371,40 +370,52 @@
                 const reader = new FileReader();
                 reader.onload = (event) => {
                     
-                    // 1. Set the source first
-                    image.src = event.target.result;
-                    
-                    // 2. CRITICAL FIX: Wait for image to fully load in the DOM
+                    // Attach onload BEFORE setting source
                     image.onload = () => {
-                        // Reveal Workspace
+                        // 1. Reveal Workspace first so Cropper can calculate dimensions correctly
                         uploadCard.style.display = 'none';
                         headerText.style.display = 'none';
+                        workspaceWrapper.style.display = 'block'; // Make it part of layout
+                        
+                        // Force a browser reflow to apply the display:block
+                        void workspaceWrapper.offsetWidth;
+                        
+                        // Fade in UI
                         workspaceWrapper.classList.add('active');
                         toolbar.classList.add('active');
-                        image.style.opacity = '1';
                         
                         // Destroy old instance if exists
-                        if (cropper) cropper.destroy();
+                        if (cropper) {
+                            cropper.destroy();
+                            cropper = null;
+                        }
                         
-                        // 3. Initialize Cropper.js now that image has dimensions
-                        cropper = new Cropper(image, {
-                            viewMode: 2, // Restrict crop box
-                            background: false, // Clean transparent background
-                            autoCropArea: 0.8,
-                            responsive: true,
-                            restore: false,
-                            guides: true,
-                            center: true,
-                            highlight: false,
-                            cropBoxMovable: true,
-                            cropBoxResizable: true,
-                            toggleDragModeOnDblclick: false,
-                        });
-                        
-                        // Reset scales
-                        scaleX = 1;
-                        scaleY = 1;
+                        // 2. Initialize Cropper inside a slight delay so DOM has definitely painted
+                        setTimeout(() => {
+                            cropper = new Cropper(image, {
+                                viewMode: 1, // Fix: 1 feels much smoother than 2, restricts crop box not to exceed canvas
+                                dragMode: 'move', // Fix: Allow dragging the image around instead of drawing new boxes (premium feel)
+                                background: true, 
+                                autoCropArea: 0.9,
+                                responsive: true,
+                                restore: false,
+                                guides: true,
+                                center: true,
+                                highlight: false,
+                                cropBoxMovable: true,
+                                cropBoxResizable: true,
+                                toggleDragModeOnDblclick: true,
+                                wheelZoomRatio: 0.1, // Fix: Smoother zooming
+                            });
+                            
+                            // Reset scales
+                            scaleX = 1;
+                            scaleY = 1;
+                        }, 50);
                     };
+                    
+                    // Trigger load
+                    image.src = event.target.result;
                 };
                 reader.readAsDataURL(file);
             }
@@ -432,17 +443,20 @@
 
         // Close / Reset
         btnClose.addEventListener('click', () => {
-            if (cropper) cropper.destroy();
-            image.src = '';
-            image.style.opacity = '0';
             workspaceWrapper.classList.remove('active');
             toolbar.classList.remove('active');
             
             setTimeout(() => {
+                if (cropper) {
+                    cropper.destroy();
+                    cropper = null;
+                }
+                image.src = '';
+                workspaceWrapper.style.display = 'none';
                 uploadCard.style.display = 'flex';
                 headerText.style.display = 'block';
                 fileInput.value = ''; // Reset input
-            }, 300); // Wait for transition
+            }, 400); // Wait for CSS transition to finish
         });
 
         // Download & Convert
@@ -458,9 +472,10 @@
                 imageSmoothingQuality: 'high',
             });
             
+            if (!canvas) return;
+
             // Fill background with white if exporting PNG with transparency to JPG
             if (format === 'image/jpeg') {
-                const ctx = canvas.getContext('2d');
                 const newCanvas = document.createElement('canvas');
                 newCanvas.width = canvas.width;
                 newCanvas.height = canvas.height;
@@ -477,11 +492,16 @@
             }
         });
 
+        // FIX: Re-structured the download function to work in strict browser environments
         function triggerDownload(dataUrl, extension) {
             const link = document.createElement('a');
             link.download = `${originalFileName}-edited.${extension}`;
             link.href = dataUrl;
+            
+            // Must append to the document body for the click to register in many environments
+            document.body.appendChild(link);
             link.click();
+            document.body.removeChild(link);
         }
     </script>
 </body>
